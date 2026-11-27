@@ -31,15 +31,17 @@
 
   /* ---------- Barra superior ---------- */
   header {
-    display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px;
-    padding: 12px 24px; background: var(--panel); border-bottom: 1px solid var(--line);
+    display: flex; flex-wrap: nowrap; align-items: center; gap: 10px 14px;
+    padding: 10px 16px; white-space: nowrap; background: var(--panel); border-bottom: 1px solid var(--line);
   }
-  .brand { margin: 0 8px 0 0; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.02em; color: var(--press); }
-  .field { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 1rem; }
+  .brand { margin: 0 6px 0 0; font-size: 1.5rem; font-weight: 800; letter-spacing: -0.02em; color: var(--press); }
+  .field { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: .95rem; min-width: 0; }
   select, button {
-    font: inherit; font-size: 1rem; color: var(--text); background: var(--bg);
-    border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer;
+    font: inherit; font-size: .95rem; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; cursor: pointer;
   }
+  #deviceSel { min-width: 0; max-width: 220px; text-overflow: ellipsis; }
+  @media (max-width: 900px) { header { flex-wrap: wrap; } }
   select:focus-visible, button:focus-visible { outline: 3px solid var(--sustain); outline-offset: 2px; }
   #status { display: flex; align-items: center; gap: 8px; font-weight: 600; }
   #status::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--bad); }
@@ -51,7 +53,8 @@
   .seg button { border: 0; border-radius: 0; background: transparent; color: var(--muted); }
   .seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 700; }
 
-  #beginner[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 700; }
+  #hintBeg kbd { font: inherit; font-weight: 700; padding: 1px 7px; border: 1px solid var(--line); border-radius: 5px; margin-right: 6px; }
+  #hintBeg.on { color: var(--text); font-weight: 700; }
   #notes.big .chip { font-size: clamp(3rem, 11vw, 11rem); padding: .05em .45em; border-width: 5px; }
   #notes.big { gap: 2vw; }
   #cleanBtn[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 700; }
@@ -157,8 +160,7 @@
     <button id="nLa" aria-pressed="false">Do Re Mi</button>
   </div>
   <button id="cleanBtn" aria-pressed="false" title="Oculta la barra superior (Esc para salir)">Pantalla limpia</button>
-  <button id="beginner" aria-pressed="false" title="Mostrar solo las notas, sin acordes">Modo principiante</button>
-  <button id="panic" title="Apaga todas las notas y limpia el estado">Reset / Panic</button>
+  <button id="panic" title="Reset / Panic: apaga todas las notas y limpia el estado">Reset</button>
 </header>
 
 <p id="banner" role="alert"></p>
@@ -172,6 +174,7 @@
     <span><i style="background:var(--press)"></i>Tecla pisada</span>
     <span><i style="background:var(--sustain)"></i>Sostenida por pedal</span>
     <span id="pedal">Pedal</span>
+    <span id="hintBeg"><kbd>P</kbd>Modo principiante</span>
   </div>
 </main>
 
@@ -451,9 +454,11 @@ async function initMidi() {
    6. EVENTOS DE INTERFAZ
    ===================================================================== */
 $("deviceSel").addEventListener("change", (e) => {
+  e.target.blur();
   state.inputId = e.target.value; localStorage.setItem("midiDevice", state.inputId); attachInputs();
 });
 $("sizeSel").addEventListener("change", (e) => {
+  e.target.blur();
   state.size = +e.target.value; localStorage.setItem("kbSize", state.size); panic(); buildKeyboard();
 });
 function setAccidentals(flats) {
@@ -494,9 +499,14 @@ $("nAm").onclick = () => setNotation(false);
 $("nLa").onclick = () => setNotation(true);
 function setBeginner(on) {
   state.beginner = on; localStorage.setItem("beginner", on ? "1" : "0");
-  $("beginner").setAttribute("aria-pressed", on); render();
+  $("hintBeg").classList.toggle("on", on); render();
 }
-$("beginner").onclick = () => setBeginner(!state.beginner);
+// Atajo de teclado: P activa/desactiva el modo principiante (ignora Cmd/Ctrl/Alt y los menús desplegables)
+window.addEventListener("keydown", (e) => {
+  if (e.key.toLowerCase() !== "p" || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+  if (["SELECT", "INPUT", "TEXTAREA"].includes(e.target.tagName)) return;
+  setBeginner(!state.beginner);
+});
 $("panic").onclick = panic;
 window.addEventListener("resize", fitChord);
 
@@ -520,7 +530,7 @@ try {
 $("sizeSel").value = String(state.size);
 setNotation(state.latin);
 $("aSh").setAttribute("aria-pressed", !state.flats); $("aFl").setAttribute("aria-pressed", state.flats);
-$("beginner").setAttribute("aria-pressed", state.beginner);
+$("hintBeg").classList.toggle("on", state.beginner);
 buildKeyboard();
 if (!hasTonal) showError("No se pudo cargar Tonal.js (¿sin internet?). Se muestran las notas, pero no se detectan acordes.");
 initMidi();
