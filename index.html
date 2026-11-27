@@ -54,6 +54,22 @@
   #beginner[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 700; }
   #notes.big .chip { font-size: clamp(3rem, 11vw, 11rem); padding: .05em .45em; border-width: 5px; }
   #notes.big { gap: 2vw; }
+  #cleanBtn[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 700; }
+
+  /* Historial de acordes */
+  #history { display: none; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px 12px;
+    color: var(--muted); font-size: clamp(1.1rem, 2.4vw, 2.2rem); font-weight: 600; }
+  #history.show { display: flex; }
+  .h-chip { padding: .1em .55em; border: 1px solid var(--line); border-radius: 999px; opacity: .7; }
+  .h-chip.now { color: var(--text); border-color: var(--muted); opacity: 1; }
+  .h-arrow { opacity: .4; }
+  #clearHist { font-size: .55em; padding: 4px 10px; margin-left: 8px; color: var(--muted); }
+
+  /* Pantalla limpia: la barra se oculta y reaparece al mover el mouse */
+  body.clean header { position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+    transform: translateY(-100%); transition: transform .25s; box-shadow: 0 8px 24px #000a; }
+  body.clean.reveal header, body.clean header:focus-within { transform: none; }
+  body.clean #legend { display: none; }
   #panic { background: var(--bad); border-color: var(--bad); color: #1a0a0a; font-weight: 700; }
 
   /* ---------- Mensajes de error ---------- */
@@ -132,10 +148,15 @@
       <option value="61">61</option>
     </select>
   </label>
+  <div class="seg" role="group" aria-label="Alteraciones">
+    <button id="aSh" aria-pressed="true" title="Usar sostenidos (C#)">♯</button>
+    <button id="aFl" aria-pressed="false" title="Usar bemoles (Db)">♭</button>
+  </div>
   <div class="seg" role="group" aria-label="Notación">
     <button id="nAm" aria-pressed="true">C D E</button>
     <button id="nLa" aria-pressed="false">Do Re Mi</button>
   </div>
+  <button id="cleanBtn" aria-pressed="false" title="Oculta la barra superior (Esc para salir)">Pantalla limpia</button>
   <button id="beginner" aria-pressed="false" title="Mostrar solo las notas, sin acordes">Modo principiante</button>
   <button id="panic" title="Apaga todas las notas y limpia el estado">Reset / Panic</button>
 </header>
@@ -145,6 +166,7 @@
 <main>
   <div id="chord" class="idle">—</div>
   <div id="alts"></div>
+  <div id="history" aria-label="Últimos acordes"></div>
   <div id="notes"></div>
   <div id="legend">
     <span><i style="background:var(--press)"></i>Tecla pisada</span>
@@ -167,6 +189,8 @@ const state = {
   sustained: new Set(),  // notas soltadas pero retenidas por el pedal
   sustainOn: false,      // pedal CC64 >= 64
   beginner: false,       // true = solo notas, sin acordes
+  flats: false,          // false = sostenidos (C#), true = bemoles (Db)
+  history: [],           // últimos acordes confirmados (símbolos americanos)
   latin: false,          // false = C D E, true = Do Re Mi
   size: 88,
   access: null,          // MIDIAccess
@@ -192,7 +216,8 @@ function toLatin(str) {
 }
 const fmt = (s) => (state.latin ? toLatin(s) : s);
 
-const pitchClass = (m) => SHARP[m % 12];
+const FLAT = ["C","Db","D","Eb","E","F","Gb","G","Ab","A","Bb","B"];
+const pitchClass = (m) => (state.flats ? FLAT : SHARP)[m % 12];
 const withOctave = (m) => pitchClass(m) + (Math.floor(m / 12) - 1);
 
 // Limpia símbolos de Tonal para que se lean como en una partitura: "CM" -> "C", "CMaj7" -> "Cmaj7"
@@ -207,6 +232,38 @@ function detect(midis) {
   midis.forEach((m) => { const p = pitchClass(m); if (!pcs.includes(p)) pcs.push(p); });
   if (pcs.length < 3) return [];
   try { return Tonal.Chord.detect(pcs).map(prettyChord); } catch (e) { return []; }
+}
+
+/* Historial: un acorde se guarda solo si se mantiene ~0,45 s, así no se
+   registran los acordes intermedios mientras vas sumando notas. */
+let histTimer = null, histSym = null;
+function scheduleHistory(sym) {
+  if (histSym === sym) return;
+  clearTimeout(histTimer); histSym = sym;
+  histTimer = setTimeout(() => {
+    const h = state.history;
+    if (h[h.length - 1] !== sym) { h.push(sym); if (h.length > 5) h.shift(); renderHistory(); }
+  }, 450);
+}
+function cancelHistory() { clearTimeout(histTimer); histTimer = null; histSym = null; }
+
+function renderHistory() {
+  const el = $("history");
+  el.innerHTML = "";
+  const visible = !state.beginner && state.history.length > 0;
+  el.classList.toggle("show", visible);
+  if (!visible) return;
+  state.history.forEach((sym, i) => {
+    if (i) { const a = document.createElement("span"); a.className = "h-arrow"; a.textContent = "→"; el.appendChild(a); }
+    const c = document.createElement("span");
+    c.className = "h-chip" + (i === state.history.length - 1 ? " now" : "");
+    c.textContent = fmt(sym);
+    el.appendChild(c);
+  });
+  const b = document.createElement("button");
+  b.id = "clearHist"; b.textContent = "Borrar";
+  b.onclick = () => { state.history = []; renderHistory(); };
+  el.appendChild(b);
 }
 
 /* =====================================================================
@@ -228,6 +285,7 @@ function render() {
 
   if (state.beginner) {
     // Modo principiante: solo notas (sin octava, sin repetir), sin acordes
+    cancelHistory();
     chordEl.style.display = all.length ? "none" : "";
     chordEl.textContent = "—"; chordEl.className = "idle"; $("alts").textContent = "";
     const seen = new Map();             // nombre -> true si alguna está pisada
@@ -245,9 +303,11 @@ function render() {
     // Modo normal: solo el acorde detectado
     chordEl.style.display = "";
     const found = detect(all);
+    if (!found.length) cancelHistory();
     if (!all.length) {
       chordEl.textContent = "—"; chordEl.className = "idle"; $("alts").textContent = "";
     } else if (found.length) {
+      scheduleHistory(found[0]);
       chordEl.textContent = fmt(found[0]); chordEl.className = "is-chord";
       $("alts").textContent = found.length > 1 ? "También: " + found.slice(1, 4).map(fmt).join("  ·  ") : "";
     } else {
@@ -259,6 +319,7 @@ function render() {
     fitChord();
   }
 
+  renderHistory();
   $("pedal").classList.toggle("on", state.sustainOn);
 }
 
@@ -395,6 +456,35 @@ $("deviceSel").addEventListener("change", (e) => {
 $("sizeSel").addEventListener("change", (e) => {
   state.size = +e.target.value; localStorage.setItem("kbSize", state.size); panic(); buildKeyboard();
 });
+function setAccidentals(flats) {
+  state.flats = flats; localStorage.setItem("flats", flats ? "1" : "0");
+  $("aSh").setAttribute("aria-pressed", !flats); $("aFl").setAttribute("aria-pressed", flats);
+  updateKeyLabels(); render();
+}
+$("aSh").onclick = () => setAccidentals(false);
+$("aFl").onclick = () => setAccidentals(true);
+
+// Pantalla limpia: oculta la barra; reaparece 2,5 s al mover el mouse. Esc para salir.
+let revealTimer = null;
+function setClean(on) {
+  document.body.classList.toggle("clean", on);
+  document.body.classList.remove("reveal");
+  $("cleanBtn").setAttribute("aria-pressed", on);
+  requestAnimationFrame(fitChord);
+}
+$("cleanBtn").onclick = () => setClean(!document.body.classList.contains("clean"));
+window.addEventListener("keydown", (e) => { if (e.key === "Escape") setClean(false); });
+window.addEventListener("mousemove", () => {
+  if (!document.body.classList.contains("clean")) return;
+  document.body.classList.add("reveal");
+  clearTimeout(revealTimer);
+  const hide = () => {
+    if (document.querySelector("header").matches(":hover")) { revealTimer = setTimeout(hide, 1000); return; }
+    document.body.classList.remove("reveal");
+  };
+  revealTimer = setTimeout(hide, 2500);
+});
+
 function setNotation(latin) {
   state.latin = latin; localStorage.setItem("latin", latin ? "1" : "0");
   $("nAm").setAttribute("aria-pressed", !latin); $("nLa").setAttribute("aria-pressed", latin);
@@ -425,9 +515,11 @@ try {
   state.size = +localStorage.getItem("kbSize") || 88;
   state.latin = localStorage.getItem("latin") === "1";
   state.beginner = localStorage.getItem("beginner") === "1";
+  state.flats = localStorage.getItem("flats") === "1";
 } catch (e) { /* localStorage no disponible: se usan los valores por defecto */ }
 $("sizeSel").value = String(state.size);
 setNotation(state.latin);
+$("aSh").setAttribute("aria-pressed", !state.flats); $("aFl").setAttribute("aria-pressed", state.flats);
 $("beginner").setAttribute("aria-pressed", state.beginner);
 buildKeyboard();
 if (!hasTonal) showError("No se pudo cargar Tonal.js (¿sin internet?). Se muestran las notas, pero no se detectan acordes.");
