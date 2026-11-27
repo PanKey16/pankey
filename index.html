@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pankey</title>
+<meta name="theme-color" content="#11131a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root {
+    --bg: #11131a;          /* fondo general */
+    --panel: #1a1d28;       /* paneles */
+    --line: #2a2f3f;        /* bordes */
+    --text: #f3efe6;        /* texto principal */
+    --muted: #8d93a8;       /* texto secundario */
+    --press: #ff8a3d;       /* nota pisada físicamente */
+    --sustain: #6cc3ff;     /* nota retenida por pedal */
+    --note: #7ee0b5;        /* notas sueltas */
+    --ok: #5fd68a;
+    --bad: #ff6b6b;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  /* ---------- Barra superior ---------- */
+  header {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px;
+    padding: 12px 24px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  .brand { margin: 0 8px 0 0; font-size: 1.7rem; font-weight: 800; letter-spacing: -0.02em; color: var(--press); }
+  .field { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 1rem; }
+  select, button {
+    font: inherit; font-size: 1rem; color: var(--text); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; cursor: pointer;
+  }
+  select:focus-visible, button:focus-visible { outline: 3px solid var(--sustain); outline-offset: 2px; }
+  #status { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+  #status::before { content: ""; width: 12px; height: 12px; border-radius: 50%; background: var(--bad); }
+  #status.on::before { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+  .spacer { flex: 1; }
+
+  /* Interruptor americano / latino */
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; color: var(--muted); }
+  .seg button[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 700; }
+
+  #beginner[aria-pressed="true"] { background: var(--text); color: var(--bg); font-weight: 700; }
+  #notes.big .chip { font-size: clamp(3rem, 11vw, 11rem); padding: .05em .45em; border-width: 5px; }
+  #notes.big { gap: 2vw; }
+  #panic { background: var(--bad); border-color: var(--bad); color: #1a0a0a; font-weight: 700; }
+
+  /* ---------- Mensajes de error ---------- */
+  #banner {
+    display: none; margin: 0; padding: 14px 24px; font-size: 1.1rem;
+    background: #3a1a1a; color: #ffd0d0; border-bottom: 1px solid var(--bad);
+  }
+  #banner.show { display: block; }
+
+  /* ---------- Display gigante ---------- */
+  main {
+    flex: 1; min-height: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 2vh; padding: 2vh 24px; text-align: center;
+  }
+  #chord {
+    font-size: clamp(4rem, 15vw, 15rem); font-weight: 800; line-height: 1;
+    letter-spacing: -0.03em; white-space: nowrap; max-width: 100%;
+  }
+  /* Acorde reconocido: grande, naranja y con borde blanco */
+  #chord.is-chord {
+    color: var(--press); -webkit-text-stroke: 6px #fff; paint-order: stroke fill;
+    font-size: clamp(4.5rem, 17vw, 17rem);
+  }
+  /* Notas sueltas: más chicas, naranja y sin borde */
+  #chord.is-notes { color: var(--press); font-size: clamp(2.5rem, 7vw, 7rem); font-weight: 700; }
+  #chord.idle { color: var(--line); font-weight: 600; }
+  #alts { color: var(--muted); font-size: clamp(1rem, 2vw, 1.6rem); min-height: 1.6em; }
+  #notes { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; min-height: 3.4rem; }
+  .chip {
+    font-size: clamp(1.4rem, 3.2vw, 3rem); font-weight: 700; padding: .15em .6em;
+    border-radius: 999px; border: 3px solid var(--press); color: var(--press);
+  }
+  .chip.sus { border-color: var(--sustain); color: var(--sustain); }
+
+  /* Leyenda y pedal */
+  #legend { display: flex; gap: 24px; color: var(--muted); font-size: 1rem; align-items: center; }
+  #legend i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; margin-right: 6px; vertical-align: -2px; }
+  #pedal { padding: 2px 10px; border-radius: 6px; border: 1px solid var(--line); }
+  #pedal.on { background: var(--sustain); color: #06202e; border-color: var(--sustain); font-weight: 700; }
+
+  /* ---------- Teclado ---------- */
+  #kbwrap { padding: 0 12px 16px; background: var(--bg); }
+  #kb {
+    position: relative; width: 100%; height: clamp(130px, 24vh, 260px);
+    container-type: inline-size; user-select: none; touch-action: none;
+    border-radius: 0 0 10px 10px; overflow: hidden; background: #000;
+  }
+  .key { position: absolute; top: 0; display: flex; align-items: flex-end; justify-content: center; }
+  .key span {
+    font-weight: 700; font-size: clamp(7px, calc(var(--w) * 0.4cqw), 18px);
+    pointer-events: none; opacity: 0; padding-bottom: 6px;
+  }
+  .white { height: 100%; background: #f2efe8; border: 1px solid #1a1a1a; border-top: 0; border-radius: 0 0 5px 5px; color: #1b1b1b; }
+  .black { height: 62%; background: #1c1c22; border-radius: 0 0 4px 4px; z-index: 2; color: #111; border: 1px solid #000; }
+  .key.p { background: var(--press); }
+  .key.s { background: var(--sustain); }
+  .key.p span, .key.s span { opacity: 1; }
+  .black.p span, .black.s span { color: #111; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1 class="brand">Pankey</h1>
+  <label class="field">Teclado
+    <select id="deviceSel" aria-label="Dispositivo MIDI"></select>
+  </label>
+  <div id="status" role="status">Desconectado</div>
+
+  <span class="spacer"></span>
+
+  <label class="field">Teclas
+    <select id="sizeSel" aria-label="Cantidad de teclas">
+      <option value="88">88</option>
+      <option value="76">76</option>
+      <option value="61">61</option>
+    </select>
+  </label>
+  <div class="seg" role="group" aria-label="Notación">
+    <button id="nAm" aria-pressed="true">C D E</button>
+    <button id="nLa" aria-pressed="false">Do Re Mi</button>
+  </div>
+  <button id="beginner" aria-pressed="false" title="Mostrar solo las notas, sin acordes">Modo principiante</button>
+  <button id="panic" title="Apaga todas las notas y limpia el estado">Reset / Panic</button>
+</header>
+
+<p id="banner" role="alert"></p>
+
+<main>
+  <div id="chord" class="idle">—</div>
+  <div id="alts"></div>
+  <div id="notes"></div>
+  <div id="legend">
+    <span><i style="background:var(--press)"></i>Tecla pisada</span>
+    <span><i style="background:var(--sustain)"></i>Sostenida por pedal</span>
+    <span id="pedal">Pedal</span>
+  </div>
+</main>
+
+<div id="kbwrap"><div id="kb"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/tonal/browser/tonal.min.js"></script>
+<script>
+"use strict";
+
+/* =====================================================================
+   1. ESTADO
+   ===================================================================== */
+const state = {
+  physical: new Set(),   // notas que se están pisando ahora (números MIDI)
+  sustained: new Set(),  // notas soltadas pero retenidas por el pedal
+  sustainOn: false,      // pedal CC64 >= 64
+  beginner: false,       // true = solo notas, sin acordes
+  latin: false,          // false = C D E, true = Do Re Mi
+  size: 88,
+  access: null,          // MIDIAccess
+  inputId: "all",        // id del dispositivo elegido o "all"
+};
+
+const $ = (id) => document.getElementById(id);
+const hasTonal = typeof Tonal !== "undefined";
+
+// Rangos estándar de cada tamaño de teclado (números MIDI)
+const RANGES = { 88: [21, 108], 76: [28, 103], 61: [36, 96] };
+
+const SHARP = ["C","C#","D","D#","E","F","F#","G","G#","A","A#","B"];
+const LATIN = { C:"Do", D:"Re", E:"Mi", F:"Fa", G:"Sol", A:"La", B:"Si" };
+const isBlack = (m) => [1,3,6,8,10].includes(m % 12);
+
+/* =====================================================================
+   2. NOMBRES DE NOTAS Y ACORDES
+   ===================================================================== */
+// Convierte una letra americana al nombre latino: "F#m7/B" -> "Fa#m7/Si"
+function toLatin(str) {
+  return str.replace(/(^|\/)([A-G])/g, (_, sep, l) => sep + LATIN[l]);
+}
+const fmt = (s) => (state.latin ? toLatin(s) : s);
+
+const pitchClass = (m) => SHARP[m % 12];
+const withOctave = (m) => pitchClass(m) + (Math.floor(m / 12) - 1);
+
+// Limpia símbolos de Tonal para que se lean como en una partitura: "CM" -> "C", "CMaj7" -> "Cmaj7"
+function prettyChord(sym) {
+  return sym.replace(/^([A-G][#b]*)M(?=\/|$)/, "$1").replace("Maj", "maj");
+}
+
+// Detecta acordes con las notas activas (la más grave primero, para obtener inversiones tipo G7/B)
+function detect(midis) {
+  if (!hasTonal || midis.length < 3) return [];
+  const pcs = [];
+  midis.forEach((m) => { const p = pitchClass(m); if (!pcs.includes(p)) pcs.push(p); });
+  if (pcs.length < 3) return [];
+  try { return Tonal.Chord.detect(pcs).map(prettyChord); } catch (e) { return []; }
+}
+
+/* =====================================================================
+   3. RENDER: DISPLAY Y TECLADO
+   ===================================================================== */
+function render() {
+  const all = [...new Set([...state.physical, ...state.sustained])].sort((a, b) => a - b);
+
+  // Teclas
+  document.querySelectorAll(".key").forEach((k) => {
+    const m = +k.dataset.midi;
+    k.classList.toggle("p", state.physical.has(m));
+    k.classList.toggle("s", !state.physical.has(m) && state.sustained.has(m));
+  });
+
+  const chordEl = $("chord"), notesEl = $("notes");
+  notesEl.innerHTML = "";
+  notesEl.classList.toggle("big", state.beginner);
+
+  if (state.beginner) {
+    // Modo principiante: solo notas (sin octava, sin repetir), sin acordes
+    chordEl.style.display = all.length ? "none" : "";
+    chordEl.textContent = "—"; chordEl.className = "idle"; $("alts").textContent = "";
+    const seen = new Map();             // nombre -> true si alguna está pisada
+    all.forEach((m) => {
+      const pc = pitchClass(m);
+      seen.set(pc, seen.get(pc) || state.physical.has(m));
+    });
+    seen.forEach((pressed, pc) => {
+      const c = document.createElement("div");
+      c.className = "chip" + (pressed ? "" : " sus");
+      c.textContent = fmt(pc);
+      notesEl.appendChild(c);
+    });
+  } else {
+    // Modo normal: solo el acorde detectado
+    chordEl.style.display = "";
+    const found = detect(all);
+    if (!all.length) {
+      chordEl.textContent = "—"; chordEl.className = "idle"; $("alts").textContent = "";
+    } else if (found.length) {
+      chordEl.textContent = fmt(found[0]); chordEl.className = "is-chord";
+      $("alts").textContent = found.length > 1 ? "También: " + found.slice(1, 4).map(fmt).join("  ·  ") : "";
+    } else {
+      // Menos de 3 notas o acorde no reconocido: se muestran las notas como respaldo
+      const pcs = [...new Set(all.map(pitchClass))];
+      chordEl.textContent = fmt(pcs.join(" ")); chordEl.className = "is-notes";
+      $("alts").textContent = pcs.length >= 3 ? "Acorde no reconocido" : "";
+    }
+    fitChord();
+  }
+
+  $("pedal").classList.toggle("on", state.sustainOn);
+}
+
+// Reduce la fuente si el nombre del acorde no entra en pantalla
+function fitChord() {
+  const el = $("chord"); el.style.fontSize = "";
+  const max = el.parentElement.clientWidth - 48;
+  const cur = parseFloat(getComputedStyle(el).fontSize);
+  if (el.scrollWidth > max) el.style.fontSize = (cur * max / el.scrollWidth) + "px";
+}
+
+// Dibuja el teclado según el tamaño elegido
+function buildKeyboard() {
+  const kb = $("kb"); kb.innerHTML = "";
+  const [lo, hi] = RANGES[state.size];
+  let whites = 0;
+  for (let m = lo; m <= hi; m++) if (!isBlack(m)) whites++;
+  const w = 100 / whites;                       // ancho de una tecla blanca (%)
+  kb.style.setProperty("--w", w.toFixed(3));
+
+  let idx = 0;
+  for (let m = lo; m <= hi; m++) {
+    const k = document.createElement("div");
+    k.dataset.midi = m;
+    k.innerHTML = "<span></span>";
+    if (!isBlack(m)) {
+      k.className = "key white"; k.style.left = idx * w + "%"; k.style.width = w + "%"; idx++;
+    } else {
+      const bw = w * 0.62;
+      k.className = "key black"; k.style.width = bw + "%"; k.style.left = (idx * w - bw / 2) + "%";
+    }
+    kb.appendChild(k);
+  }
+  updateKeyLabels();
+  render();
+}
+
+// Etiqueta de cada tecla (solo visible al pulsarse)
+function updateKeyLabels() {
+  document.querySelectorAll(".key").forEach((k) => {
+    k.firstChild.textContent = fmt(pitchClass(+k.dataset.midi));
+  });
+}
+
+/* =====================================================================
+   4. LÓGICA DE NOTAS (sin teclas pegadas) Y SUSTAIN
+   ===================================================================== */
+function noteOn(n) {
+  state.physical.add(n);
+  state.sustained.delete(n);      // si estaba retenida, ahora vuelve a estar pisada
+  render();
+}
+function noteOff(n) {
+  if (!state.physical.delete(n)) return render();
+  if (state.sustainOn) state.sustained.add(n);   // el pedal la retiene
+  render();
+}
+function setSustain(on) {
+  state.sustainOn = on;
+  if (!on) state.sustained.clear();              // al soltar el pedal se apagan las retenidas
+  render();
+}
+function panic() {
+  state.physical.clear(); state.sustained.clear(); state.sustainOn = false;
+  render();
+}
+
+/* =====================================================================
+   5. WEB MIDI
+   ===================================================================== */
+function handleMessage(ev) {
+  const [status, d1, d2] = ev.data;
+  const type = status & 0xF0;                    // ignora el canal
+  if (type === 0x90 && d2 > 0) noteOn(d1);                     // Note On
+  else if (type === 0x80 || (type === 0x90 && d2 === 0)) noteOff(d1); // Note Off
+  else if (type === 0xB0) {
+    if (d1 === 64) setSustain(d2 >= 64);                       // Pedal sustain
+    else if (d1 === 123 || d1 === 120) panic();                // All Notes Off / All Sound Off
+  }
+}
+
+function showError(msg) { const b = $("banner"); b.textContent = msg; b.classList.toggle("show", !!msg); }
+
+// Rellena el menú con los dispositivos y engancha los mensajes
+function refreshDevices() {
+  const sel = $("deviceSel");
+  const inputs = [...state.access.inputs.values()];
+  sel.innerHTML = "";
+  if (!inputs.length) {
+    sel.innerHTML = '<option value="">Sin dispositivos</option>';
+  } else {
+    sel.add(new Option("Todos los dispositivos", "all"));
+    inputs.forEach((i) => sel.add(new Option(i.name || i.id, i.id)));
+    const saved = localStorage.getItem("midiDevice");
+    state.inputId = [...sel.options].some((o) => o.value === saved) ? saved : "all";
+    sel.value = state.inputId;
+  }
+  attachInputs();
+}
+
+function attachInputs() {
+  let active = 0;
+  state.access.inputs.forEach((input) => {
+    const selected = state.inputId === "all" || input.id === state.inputId;
+    input.onmidimessage = selected ? handleMessage : null;
+    if (selected && input.state === "connected") active++;
+  });
+  const st = $("status");
+  st.textContent = active ? "Conectado" : "Desconectado";
+  st.classList.toggle("on", active > 0);
+  panic();                                       // limpia al cambiar de dispositivo
+}
+
+async function initMidi() {
+  if (!navigator.requestMIDIAccess) {
+    showError("Este navegador no soporta Web MIDI. Abrí esta página en Google Chrome o Microsoft Edge (Firefox y Safari no la incluyen).");
+    return;
+  }
+  try {
+    state.access = await navigator.requestMIDIAccess();
+    state.access.onstatechange = refreshDevices; // conectar/desconectar en caliente
+    refreshDevices();
+  } catch (err) {
+    showError("No se pudo acceder a MIDI (" + (err.name || "error") + "). Permití el acceso a dispositivos MIDI en el candado de la barra de direcciones y recargá. Si otro programa usa el teclado, cerralo.");
+  }
+}
+
+/* =====================================================================
+   6. EVENTOS DE INTERFAZ
+   ===================================================================== */
+$("deviceSel").addEventListener("change", (e) => {
+  state.inputId = e.target.value; localStorage.setItem("midiDevice", state.inputId); attachInputs();
+});
+$("sizeSel").addEventListener("change", (e) => {
+  state.size = +e.target.value; localStorage.setItem("kbSize", state.size); panic(); buildKeyboard();
+});
+function setNotation(latin) {
+  state.latin = latin; localStorage.setItem("latin", latin ? "1" : "0");
+  $("nAm").setAttribute("aria-pressed", !latin); $("nLa").setAttribute("aria-pressed", latin);
+  updateKeyLabels(); render();
+}
+$("nAm").onclick = () => setNotation(false);
+$("nLa").onclick = () => setNotation(true);
+function setBeginner(on) {
+  state.beginner = on; localStorage.setItem("beginner", on ? "1" : "0");
+  $("beginner").setAttribute("aria-pressed", on); render();
+}
+$("beginner").onclick = () => setBeginner(!state.beginner);
+$("panic").onclick = panic;
+window.addEventListener("resize", fitChord);
+
+// Tocar con el mouse/dedo (útil para probar sin teclado)
+let mouseNote = null;
+$("kb").addEventListener("pointerdown", (e) => {
+  const k = e.target.closest(".key"); if (!k) return;
+  mouseNote = +k.dataset.midi; noteOn(mouseNote);
+});
+window.addEventListener("pointerup", () => { if (mouseNote !== null) { noteOff(mouseNote); mouseNote = null; } });
+
+/* =====================================================================
+   7. ARRANQUE
+   ===================================================================== */
+try {
+  state.size = +localStorage.getItem("kbSize") || 88;
+  state.latin = localStorage.getItem("latin") === "1";
+  state.beginner = localStorage.getItem("beginner") === "1";
+} catch (e) { /* localStorage no disponible: se usan los valores por defecto */ }
+$("sizeSel").value = String(state.size);
+setNotation(state.latin);
+$("beginner").setAttribute("aria-pressed", state.beginner);
+buildKeyboard();
+if (!hasTonal) showError("No se pudo cargar Tonal.js (¿sin internet?). Se muestran las notas, pero no se detectan acordes.");
+initMidi();
+</script>
+</body>
+</html>
